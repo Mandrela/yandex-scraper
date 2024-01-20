@@ -13,7 +13,13 @@ import keyboard
 import subprocess
 
 
+ic.configureOutput(includeContext=True)
+
+
 def init_driver(driver_name: str) -> webdriver.Chrome | webdriver.Firefox | None:
+    """
+    :param driver_name: Could be Firefox or Chrome only for now
+    """
     if driver_name == 'Firefox':
         options = webdriver.FirefoxOptions()
     elif driver_name == 'Chrome':
@@ -30,7 +36,11 @@ def init_driver(driver_name: str) -> webdriver.Chrome | webdriver.Firefox | None
         return webdriver.Chrome(options=options)
 
 
-def redo_html_file(file_path: str):
+def redo_html_file(file_path: str) -> None:
+    """
+    Delete sensetive information from page
+    :param file_path: HTML file path
+    """
     soup = BeautifulSoup(open(file_path, 'rb'), 'lxml')
     for page in soup.find_all('span', class_='user-account__name'):
         page.replace_with('')
@@ -48,6 +58,9 @@ def read_urls(file_path: str) -> list:
 
 
 def authorizate(driver: webdriver.Chrome | webdriver.Firefox, login: str, password: str) -> None:
+    """
+    Authorize in lms system
+    """
     login_input = driver.find_element(By.ID, 'passp-field-login')
     login_input.clear()
     login_input.send_keys(login)
@@ -65,6 +78,9 @@ def authorizate(driver: webdriver.Chrome | webdriver.Firefox, login: str, passwo
 
 
 def create_directory(driver: webdriver.Chrome | webdriver.Firefox, number: int, path: str) -> str:
+    """
+    Create directory with name that it takes from materals page
+    """
     soup = BeautifulSoup(driver.page_source, 'lxml')
     file_name = ic(soup.find('article', class_='material').find('h1').text)
     try:
@@ -76,6 +92,9 @@ def create_directory(driver: webdriver.Chrome | webdriver.Firefox, number: int, 
 
 
 def save_page(driver: webdriver.Chrome | webdriver.Firefox, file_path: str) -> bool:
+    """
+    Save page by its page_source
+    """
     if os.path.exists(file_path):
         return False
     with open(file_path, 'wt', encoding='utf8') as file:
@@ -84,12 +103,33 @@ def save_page(driver: webdriver.Chrome | webdriver.Firefox, file_path: str) -> b
 
 
 def save_pagen(file_path: str) -> None:
+    """
+    Save page by simulating pressing ctrl+s by user
+    """
     keyboard.send('ctrl+s')
     time.sleep(3)
     keyboard.write(file_path)
     time.sleep(1)
     keyboard.send('enter')
     time.sleep(5)
+
+
+def stage_1(driver: webdriver.Chrome | webdriver.Firefox, page_url: str) -> list:
+    """
+    Get lessons links from page
+    """
+    driver.get(page_url)
+    time.sleep(5)
+    authorizate(driver, login, password)
+    time.sleep(5)
+
+    urls = []
+    soup = BeautifulSoup(driver.page_source, 'lxml')
+    for item in ic(soup.find_all('li', class_='link-list__item')[::-1]):
+        url = ic(item.find('a', class_='link-list__link').get('href'))
+        if '/tasks/' not in url:
+            urls.append(url)
+    return ic(urls)
 
 
 def stage_3():
@@ -165,8 +205,12 @@ def stage_6(directory: str) -> None:
             os.chdir(directory)
 
 
-def main():
+def main(course_link: str) -> None:
     path = os.path.abspath(os.curdir)
+    if os.listdir(path):
+        print('Need empty folder: cur not')
+        return
+
     odriver = init_driver('Firefox')
     try:
         # ic(authorizate(driver, login, password))
@@ -188,4 +232,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    main(input('Link here: '))
