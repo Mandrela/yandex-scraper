@@ -114,7 +114,7 @@ def save_pagen(file_path: str) -> None:
     time.sleep(5)
 
 
-def stage_1(driver: webdriver.Chrome | webdriver.Firefox, page_url: str) -> list:
+def stage_1(driver: webdriver.Chrome | webdriver.Firefox, page_url: str) -> bool:
     """
     Get lessons links from page
     """
@@ -129,7 +129,8 @@ def stage_1(driver: webdriver.Chrome | webdriver.Firefox, page_url: str) -> list
         url = ic(item.find('a', class_='link-list__link').get('href'))
         if '/tasks/' not in url:
             urls.append(url)
-    return ic(urls)
+    open('stage_1.txt', 'wt').writelines(urls)
+    return True
 
 
 def stage_3():
@@ -207,28 +208,27 @@ def stage_6(directory: str) -> None:
 
 def main(course_link: str) -> None:
     path = os.path.abspath(os.curdir)
-    if os.listdir(path):
-        print('Need empty folder: cur not')
-        return
-
-    odriver = init_driver('Firefox')
     try:
-        # ic(authorizate(driver, login, password))
-        # time.sleep(10)
+        stage_num: int = int(open('progress', 'rt').readline()) or 0
+    except FileNotFoundError:
+        if os.listdir(path):
+            print('NYADMORESPACE')
+            return
+        else:
+            stage_num = 0
 
-        os.mkdir(fr'{path}\urls')
-        stage_4(odriver, fr'{path}\urls.txt', fr'{path}\urls')
+    driver = init_driver('Firefox')
+    stages: dict = {stage_1: [driver, course_link]}
 
-        os.mkdir(fr'{path}\_Result')
-        stage_5(odriver, fr'{path}\urls', fr'{path}\_Result')
-
+    try:
+        for stage in sorted(stages.keys())[stage_num:]:
+            stage_num += stage(*stages[stage])
+            open('progress', 'wt').write(str(stage_num))
     except Exception as ex:
         print(ex)
     finally:
-        odriver.close()
-        odriver.quit()
-
-    stage_6(fr'{path}\_Result')
+        driver.close()
+        driver.quit()
 
 
 if __name__ == '__main__':
