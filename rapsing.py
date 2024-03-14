@@ -1,3 +1,9 @@
+import time
+import os
+import keyboard
+import subprocess
+import json
+
 from icecream import ic
 from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
@@ -6,12 +12,6 @@ from login_password import login, password
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-
-import time
-import os
-import keyboard
-import subprocess
-
 
 ic.configureOutput(includeContext=True)
 
@@ -123,21 +123,49 @@ def stage_1(driver: webdriver.Chrome | webdriver.Firefox, page_url: str) -> bool
     authorizate(driver, login, password)
     time.sleep(5)
 
-    urls = []
-    soup = BeautifulSoup(driver.page_source, 'lxml')
+    urls: list = []
+    soup: BeautifulSoup = BeautifulSoup(driver.page_source, 'lxml')
     for item in ic(soup.find_all('li', class_='link-list__item')[::-1]):
-        url = ic(item.find('a', class_='link-list__link').get('href'))
+        url: str = ic(item.find('a', class_='link-list__link').get('href'))
         if '/tasks/' not in url:
             urls.append(url)
-    open('stage_1.txt', 'wt').writelines(urls)
+    open('stage_1', 'wt').writelines(urls)
+    try:
+        indx: int = len(open('download_queue', 'rt').readlines())
+        open('download_queue', 'wt').writelines(urls[indx:])
+    except FileNotFoundError:
+        open('download_queue', 'wt').writelines(urls)
+    print('Stage 1 have been completed')
     return True
 
 
-def stage_3():
+def stage_2(driver: webdriver.Chrome | webdriver.Firefox) -> bool:
     """
+    Through every lesson and create json/file with every task link, file with materials yand that's all
+    """
+    try:
+        result: list = ic(json.load(open('stage_2.json', 'rt')))['data']
+    except FileNotFoundError:
+        result: list = ic([])
 
-    """
-    pass
+    for lesson_url in open('download_queue', 'rt').readlines():
+        semi_result: list = []
+        driver.get(lesson_url)
+        time.sleep(3)
+
+        soup: BeautifulSoup = BeautifulSoup(driver.page_source, 'lxml')
+        mat_link: str = ic(soup.find('a', class_='material-list__material-link').get('href'))
+        if mat_link:
+            semi_result.append('https://lms.yandex.ru' + mat_link)
+        else:
+            semi_result.append('')
+
+        semi_result.extend(list(map(lambda x: 'https://lms.yandex.ru' + x.get('href'),
+                                    soup.find_all('a', class_='student-task-list__task'))))
+        result.append(semi_result)
+    json.dump({'data': result}, open('stage_2.json', 'wt'))
+    print('Stage 2 have been completed')
+    return True
 
 
 def stage_4(driver: webdriver.Chrome | webdriver.Firefox, url_file_path: str, url_folder_path: str) -> None:
@@ -218,11 +246,12 @@ def main(course_link: str) -> None:
             stage_num = 0
 
     driver = init_driver('Firefox')
-    stages: dict = {stage_1: [driver, course_link]}
+    stages: dict = {stage_1: [driver, course_link], stage_2: [driver]}
 
     try:
         for stage in sorted(stages.keys())[stage_num:]:
             stage_num += stage(*stages[stage])
+            ic(f'{stage_num} stages done')
             open('progress', 'wt').write(str(stage_num))
     except Exception as ex:
         print(ex)
