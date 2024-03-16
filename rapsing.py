@@ -50,13 +50,6 @@ def redo_html_file(file_path: str) -> None:
         file.write(soup.prettify('utf-8'))
 
 
-def read_urls(file_path: str) -> list:
-    temp = []
-    for url in open(file_path, 'rt', encoding='utf8').readlines():
-        temp.append(url.strip())
-    return temp
-
-
 def authorizate(driver: webdriver.Chrome | webdriver.Firefox, login: str, password: str) -> None:
     """
     Authorize in lms system
@@ -81,14 +74,16 @@ def create_directory(driver: webdriver.Chrome | webdriver.Firefox, number: int, 
     """
     Create directory with name that it takes from materals page
     """
-    soup = BeautifulSoup(driver.page_source, 'lxml')
-    file_name = ic(soup.find('article', class_='material').find('h1').text)
+    soup: BeautifulSoup = BeautifulSoup(driver.page_source, 'lxml')
+    folder_name: str = ic(soup.find('article', class_='material').find('h1').text.replace(' ', '_'))
+    result_path: str = fr"{path}\{number}_{folder_name}"
     try:
-        os.mkdir(fr"{path}\{number}_{file_name}")
-    except Exception as ex:
-        print(ex)
+        os.mkdir(result_path)
+    except Exception:
+        open(f'{result_path}/del.bat', 'wt', encoding='utf-8').writelines(['@echo off\n', 'erase /s /q *\n'])
+        subprocess.run(f'{result_path}/del.bat')
     finally:
-        return fr"{path}\{number}_{file_name}"
+        return result_path
 
 
 def save_page(driver: webdriver.Chrome | webdriver.Firefox, file_path: str) -> bool:
@@ -118,11 +113,6 @@ def stage_1(driver: webdriver.Chrome | webdriver.Firefox, page_url: str) -> bool
     """
     Get lessons links from page
     """
-    driver.get(page_url)
-    time.sleep(5)
-    authorizate(driver, login, password)
-    time.sleep(5)
-
     urls: list = []
     soup: BeautifulSoup = BeautifulSoup(driver.page_source, 'lxml')
     for item in ic(soup.find_all('li', class_='link-list__item')[::-1]):
@@ -141,14 +131,20 @@ def stage_1(driver: webdriver.Chrome | webdriver.Firefox, page_url: str) -> bool
 
 def stage_2(driver: webdriver.Chrome | webdriver.Firefox) -> bool:
     """
-    Through every lesson and create json/file with every task link, file with materials yand that's all
+    Through every lesson and create json with every material and task link
     """
     try:
         result: list = ic(json.load(open('stage_2.json', 'rt')))['data']
     except FileNotFoundError:
         result: list = ic([])
 
-    for lesson_url in open('download_queue', 'rt').readlines():
+    lessons_urls: list[str] = open('download_queue', 'rt').readlines()
+    progress_cnt: int = 0
+    progress_max: int = len(lessons_urls)
+    for lesson_url in lessons_urls:
+        if not progress_cnt % 10:
+            print(f'{progress_cnt / progress_max * 100:.0f}%')
+
         semi_result: list = []
         driver.get(lesson_url)
         time.sleep(3)
@@ -163,60 +159,57 @@ def stage_2(driver: webdriver.Chrome | webdriver.Firefox) -> bool:
         semi_result.extend(list(map(lambda x: 'https://lms.yandex.ru' + x.get('href'),
                                     soup.find_all('a', class_='student-task-list__task'))))
         result.append(semi_result)
+        progress_cnt += 1
     json.dump({'data': result}, open('stage_2.json', 'wt'))
     print('Stage 2 have been completed')
     return True
 
 
-def stage_4(driver: webdriver.Chrome | webdriver.Firefox, url_file_path: str, url_folder_path: str) -> None:
-    """
-    create files with urls inside the given folder
-    """
-    for url in ic(read_urls(url_file_path)):
-        driver.get(ic(url))
-        time.sleep(5)
+def stage_3(driver: webdriver.Chrome | webdriver.Firefox) -> bool:
+    data = json.load(open('stage_2.json'))['data']
+    result_folder_path: str = fr'{os.curdir}\_result'
+    if not os.path.exists(result_folder_path):
+        os.mkdir(result_folder_path)
+        start_point: int = 0
+    else:
+        start_point: int = max(list(map(lambda x: int(x.split('_')[0]) - 1 if os.path.isdir(x) else 0, os.listdir()))
+                               or 0)
 
-        save_page(driver, '')
-        time.sleep(10)
-
-
-def stage_5(driver: webdriver.Chrome | webdriver.Firefox, url_folder_path: str, download_folder_path: str) -> None:
-    """
-    download all tasks and materials from folder with urls to given folder
-    """
-    materials = ic(read_urls(fr'{url_folder_path}\materials.txt'))
-
-    for cnt in range(len(ic(materials))):
-        if materials[cnt]:
-            driver.get(materials[cnt])
-            time.sleep(5)
-            directory = create_directory(driver, cnt + 1, download_folder_path)
-            save_page(driver, fr'{directory}\materials.html')
+    progress_max: int = len(data)
+    progress_cnt: int = start_point
+    for index, item in enumerate(data[start_point:]):
+        if item[0]:
+            driver.get(item[0])
+            time.sleep(4)
+            directory_path: str = create_directory(driver, index + 1, result_folder_path)
+            save_page(driver, fr'{directory_path}\materials.html')
         else:
-            ic(os.mkdir(fr"{download_folder_path}\{cnt + 1}_СИКР"))
-            directory = fr"{download_folder_path}\{cnt + 1}_СИКР"
+            directory_path: str = fr'{result_folder_path}\{index + 1}_СИКР'
+            try:
+                ic(os.mkdir(directory_path))
+            except Exception:
+                pass
 
-        ccnt = 1
-        for url in read_urls(fr"{url_folder_path}\{cnt + 1}.txt"):
+        for number, url in enumerate(item[1:]):
             driver.get(url)
             time.sleep(5)
 
-            jk = 1
-            while jk < 3:
+            for _ in range(3):
                 try:
                     driver.find_element(By.CLASS_NAME, 'y4ef2d--task-description-opener').find_element(By.TAG_NAME,
                                                                                                        'a').click()
-                    jk = 5
+                    break
                 except Exception:
-                    jk += 1
                     time.sleep(3)
 
             time.sleep(2)
-            save_pagen(fr'{directory}\{ccnt}_task.html')
-            ccnt += 1
+            save_pagen(fr'{directory_path}\{number + 1}_task.html')
+        print(f'{progress_cnt / progress_max * 100:.0f}%')
+        progress_cnt += 1
+    return True
 
 
-def stage_6(directory: str) -> None:
+def stage_4(directory: str) -> None:
     """
     file processing in directory
     """
@@ -237,7 +230,7 @@ def stage_6(directory: str) -> None:
 def main(course_link: str) -> None:
     path = os.path.abspath(os.curdir)
     try:
-        stage_num: int = int(open('progress', 'rt').readline()) or 0
+        stage_num: int = int(open('progress', 'rt').readline())
     except FileNotFoundError:
         if os.listdir(path):
             print('NYADMORESPACE')
@@ -246,10 +239,15 @@ def main(course_link: str) -> None:
             stage_num = 0
 
     driver = init_driver('Firefox')
-    stages: dict = {stage_1: [driver, course_link], stage_2: [driver]}
+    stages: dict = {stage_1: [driver], stage_2: [driver], stage_3: [driver], stage_4: [fr'{path}\_result']}
 
     try:
-        for stage in sorted(stages.keys())[stage_num:]:
+        driver.get(course_link)
+        time.sleep(5)
+        authorizate(driver, login, password)
+        time.sleep(2)
+
+        for stage in stages.keys()[stage_num:]:
             stage_num += stage(*stages[stage])
             ic(f'{stage_num} stages done')
             open('progress', 'wt').write(str(stage_num))
