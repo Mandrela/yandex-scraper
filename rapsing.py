@@ -124,7 +124,7 @@ def stage_1(driver: webdriver.Chrome | webdriver.Firefox) -> bool:
     for item in ic(soup.find_all('li', class_='link-list__item')[::-1]):
         url: str = ic(item.find('a', class_='link-list__link').get('href'))
         if '/tasks/' not in url:
-            urls.append('https://lms.yandex.ru' + url)
+            urls.append('https://lms.yandex.ru' + url + '\n')
     open('stage_1', 'wt').writelines(urls)
     try:
         indx: int = len(open('download_queue', 'rt').readlines())
@@ -181,7 +181,7 @@ def stage_3(driver: webdriver.Chrome | webdriver.Firefox) -> bool:
         start_point: int = 0
     else:
         start_point: int = max(map(lambda x: int(x.split('_')[0]) - 1 if os.path.isdir(x) else 0,
-                                   os.listdir(result_folder_path)))
+                                   os.listdir(result_folder_path) + ['0_0']))
 
     progress_max: int = len(data)
     progress_cnt: int = start_point
