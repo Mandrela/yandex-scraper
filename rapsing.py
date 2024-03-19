@@ -3,11 +3,16 @@ import os
 import keyboard
 import subprocess
 import json
+import sys
 
 from icecream import ic
 from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
-from login_password import login, password
+try:
+    from login_password import login, password
+except ModuleNotFoundError:
+    print('No login_password.py')
+    sys.exit(-1)
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -80,7 +85,7 @@ def create_directory(driver: webdriver.Chrome | webdriver.Firefox, number: int, 
     try:
         os.mkdir(result_path)
     except Exception:
-        open(f'{result_path}/del.bat', 'wt', encoding='utf-8').writelines(['@echo off\n', 'erase /s /q *\n'])
+        open(f'{result_path}/del.bat', 'wt', encoding='utf-8').writelines(['@echo off\n', 'erase /q /s *.html\n'])
         subprocess.run(f'{result_path}/del.bat')
     finally:
         return result_path
@@ -109,16 +114,17 @@ def save_pagen(file_path: str) -> None:
     time.sleep(5)
 
 
-def stage_1(driver: webdriver.Chrome | webdriver.Firefox, page_url: str) -> bool:
+def stage_1(driver: webdriver.Chrome | webdriver.Firefox) -> bool:
     """
     Get lessons links from page
     """
+    time.sleep(5)
     urls: list = []
     soup: BeautifulSoup = BeautifulSoup(driver.page_source, 'lxml')
     for item in ic(soup.find_all('li', class_='link-list__item')[::-1]):
         url: str = ic(item.find('a', class_='link-list__link').get('href'))
         if '/tasks/' not in url:
-            urls.append(url)
+            urls.append('https://lms.yandex.ru' + url)
     open('stage_1', 'wt').writelines(urls)
     try:
         indx: int = len(open('download_queue', 'rt').readlines())
@@ -141,19 +147,21 @@ def stage_2(driver: webdriver.Chrome | webdriver.Firefox) -> bool:
     lessons_urls: list[str] = open('download_queue', 'rt').readlines()
     progress_cnt: int = 0
     progress_max: int = len(lessons_urls)
+    sleep_time: int = 4
+    print(f'Estimated time: {sleep_time * (progress_max - progress_cnt) / 60:.1f} min')
     for lesson_url in lessons_urls:
-        if not progress_cnt % 10:
+        if not progress_cnt % 5:
             print(f'{progress_cnt / progress_max * 100:.0f}%')
 
         semi_result: list = []
         driver.get(lesson_url)
-        time.sleep(3)
+        time.sleep(sleep_time)
 
         soup: BeautifulSoup = BeautifulSoup(driver.page_source, 'lxml')
-        mat_link: str = ic(soup.find('a', class_='material-list__material-link').get('href'))
-        if mat_link:
+        try:
+            mat_link: str = ic(soup.find('a', class_='material-list__material-link').get('href'))
             semi_result.append('https://lms.yandex.ru' + mat_link)
-        else:
+        except AttributeError:
             semi_result.append('')
 
         semi_result.extend(list(map(lambda x: 'https://lms.yandex.ru' + x.get('href'),
@@ -167,20 +175,24 @@ def stage_2(driver: webdriver.Chrome | webdriver.Firefox) -> bool:
 
 def stage_3(driver: webdriver.Chrome | webdriver.Firefox) -> bool:
     data = json.load(open('stage_2.json'))['data']
-    result_folder_path: str = fr'{os.curdir}\_result'
+    result_folder_path: str = fr'{os.path.abspath(os.curdir)}\_result'
     if not os.path.exists(result_folder_path):
         os.mkdir(result_folder_path)
         start_point: int = 0
     else:
-        start_point: int = max(list(map(lambda x: int(x.split('_')[0]) - 1 if os.path.isdir(x) else 0, os.listdir()))
-                               or 0)
+        start_point: int = max(map(lambda x: int(x.split('_')[0]) - 1 if os.path.isdir(x) else 0,
+                                   os.listdir(result_folder_path)))
 
     progress_max: int = len(data)
     progress_cnt: int = start_point
+    sleep_time_1: int = 4
+    sleep_time_2: int = 5
+    print(f'Estimated time(rude): {((progress_max - progress_cnt) * (sleep_time_1 + 7 * (sleep_time_2 + 20)))/ 60:.1f}'
+          f' min')
     for index, item in enumerate(data[start_point:]):
         if item[0]:
             driver.get(item[0])
-            time.sleep(4)
+            time.sleep(sleep_time_1)
             directory_path: str = create_directory(driver, index + 1, result_folder_path)
             save_page(driver, fr'{directory_path}\materials.html')
         else:
@@ -192,7 +204,7 @@ def stage_3(driver: webdriver.Chrome | webdriver.Firefox) -> bool:
 
         for number, url in enumerate(item[1:]):
             driver.get(url)
-            time.sleep(5)
+            time.sleep(sleep_time_2)
 
             for _ in range(3):
                 try:
@@ -209,7 +221,7 @@ def stage_3(driver: webdriver.Chrome | webdriver.Firefox) -> bool:
     return True
 
 
-def stage_4(directory: str) -> None:
+def stage_4(directory: str) -> bool:
     """
     file processing in directory
     """
@@ -225,6 +237,7 @@ def stage_4(directory: str) -> None:
                     redo_html_file(ic(file))
 
             os.chdir(directory)
+    return True
 
 
 def main(course_link: str) -> None:
@@ -232,9 +245,9 @@ def main(course_link: str) -> None:
     try:
         stage_num: int = int(open('progress', 'rt').readline())
     except FileNotFoundError:
-        if os.listdir(path):
+        if os.listdir(path).remove('login_password.py'):
             print('NYADMORESPACE')
-            return
+            sys.exit(-1)
         else:
             stage_num = 0
 
@@ -247,7 +260,7 @@ def main(course_link: str) -> None:
         authorizate(driver, login, password)
         time.sleep(2)
 
-        for stage in stages.keys()[stage_num:]:
+        for stage in list(stages.keys())[stage_num:]:
             stage_num += stage(*stages[stage])
             ic(f'{stage_num} stages done')
             open('progress', 'wt').write(str(stage_num))
